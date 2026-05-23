@@ -1,0 +1,52 @@
+{
+  "hero": {
+    "title": "Hi, I'm Sumin GC",
+    "subtitle": "I build modern, responsive static websites with polished visuals, fast performance, and a clean user experience.",
+    "email": "gcsumin1725@gmail.com"
+  },
+  "about": {
+    "description": [
+      "I am Sumin GC, a passionate developer focused on crafting polished, accessible, and visually rich static portfolio experiences.",
+      "I enjoy turning structured data into dynamic front-end content with elegant CSS and smooth animations."
+    ],
+    "highlight": "Expertise: HTML, CSS, JavaScript, responsive design, UI animation, content-driven static pages."
+  },
+  "skills": [
+    {
+      "name": "Responsive Layouts",
+      "description": "Design adaptive user interfaces that look great on mobile, tablet, and desktop screens."
+    },
+    {
+      "name": "Visual Design",
+      "description": "Create polished, modern visuals with gradients, glassmorphism, and subtle motion."
+    },
+    {
+      "name": "JavaScript Interaction",
+      "description": "Build dynamic content driven by JSON, with clean DOM rendering and performance-aware behavior."
+    },
+    {
+      "name": "Static Site Development",
+      "description": "Develop lightweight, fast-loading static portfolio pages ready for hosting anywhere."
+    }
+  ],
+  "projects": [
+    {
+      "title": "Portfolio Landing Page",
+      "summary": "A modern professionally styled portfolio landing page with animated sections and responsive layout.",
+      "technology": "HTML, CSS, JavaScript",
+      "type": "Static Website"
+    },
+    {
+      "title": "Interactive Skills Showcase",
+      "summary": "A skill-driven interface that highlights expertise using structured JSON data and smooth hover effects.",
+      "technology": "CSS Grid, JS DOM",
+      "type": "Frontend UI"
+    },
+    {
+      "title": "Contact Focus Section",
+      "summary": "A polished contact section designed for conversion with email CTA and clean visual hierarchy.",
+      "technology": "HTML, CSS",
+      "type": "Portfolio Feature"
+    }
+  ]
+}
