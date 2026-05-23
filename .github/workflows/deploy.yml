@@ -21,49 +21,68 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
 
-      - name: Setup Apache Server
+      - name: Deploy Apache Config + Site
         run: |
           set -e
-
-          echo '<VirtualHost *:'"$PORT"'>' > /tmp/site.conf
-          echo '    DocumentRoot /home/'"$USER"'/website' >> /tmp/site.conf
-          echo '    <Directory /home/'"$USER"'/website>' >> /tmp/site.conf
-          echo '        Options Indexes FollowSymLinks' >> /tmp/site.conf
-          echo '        AllowOverride None' >> /tmp/site.conf
-          echo '        Require all granted' >> /tmp/site.conf
-          echo '    </Directory>' >> /tmp/site.conf
-          echo '</VirtualHost>' >> /tmp/site.conf
-
-          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/site.conf "$USER@$HOST:/tmp/site.conf"
 
           sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$HOST" "
             set -e
 
+            # Install Apache if missing
             if ! dpkg -s apache2 >/dev/null 2>&1; then
               echo '$PASS' | sudo -S apt-get update -qq
               echo '$PASS' | sudo -S apt-get install -y -qq apache2
             fi
 
+            # Create website directory
             mkdir -p ~/website
 
+            # Remove old broken configs (VERY IMPORTANT FIX)
+            echo '$PASS' | sudo -S a2dissite gh-actions.conf || true
+            echo '$PASS' | sudo -S rm -f /etc/apache2/sites-available/gh-actions.conf || true
+            echo '$PASS' | sudo -S rm -f /etc/apache2/sites-enabled/gh-actions.conf || true
+
+            # Add port if not exists
             if ! grep -q 'Listen $PORT' /etc/apache2/ports.conf; then
-              echo '$PASS' | sudo -S sh -c 'echo Listen $PORT >> /etc/apache2/ports.conf'
+              echo '$PASS' | sudo -S sh -c 'echo \"Listen $PORT\" >> /etc/apache2/ports.conf'
             fi
-
-            echo '$PASS' | sudo -S mv /tmp/site.conf /etc/apache2/sites-available/site.conf
-
-            if ! [ -L /etc/apache2/sites-enabled/site.conf ]; then
-              echo '$PASS' | sudo -S a2ensite site.conf
-            fi
-
-            echo '$PASS' | sudo -S apache2ctl graceful
           "
 
-      - name: Upload index.html
+          # Create SAFE vhost file locally
+          cat <<EOF > /tmp/site.conf
+<VirtualHost *:${PORT}>
+    DocumentRoot /home/${USER}/website
+
+    <Directory /home/${USER}/website>
+        Options Indexes FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+</VirtualHost>
+EOF
+
+          # Upload config
+          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/site.conf "$USER@$HOST:/tmp/site.conf"
+
+          # Activate config safely
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$HOST" "
+            set -e
+
+            echo '$PASS' | sudo -S mv /tmp/site.conf /etc/apache2/sites-available/gh-actions.conf
+            echo '$PASS' | sudo -S a2ensite gh-actions.conf
+
+            # Validate Apache config BEFORE restart
+            echo '$PASS' | sudo -S apache2ctl configtest
+
+            # Reload safely
+            echo '$PASS' | sudo -S systemctl reload apache2
+          "
+
+      - name: Upload website files
         run: |
           sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no ./* "$USER@$HOST:/home/$USER/website/"
 
       - name: Verify Deployment
         run: |
-          sleep 2
+          sleep 3
           curl "http://$HOST:$PORT/"
