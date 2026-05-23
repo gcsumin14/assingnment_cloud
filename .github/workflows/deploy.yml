@@ -1,137 +1,69 @@
-name: Deploy
+name: Deploy Static HTML
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     env:
-      HOST: ${{ secrets.SERVER_IP }}
-      USER: ${{ secrets.SERVER_USER }}
+      HOST: ${{ secrets.SERVER_HOST }}
+      USER: ${{ secrets.SERVER_USERNAME }}
       PASS: ${{ secrets.SERVER_PASSWORD }}
-      SHA: ${{ github.sha }}
       PORT: "8040"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Install sshpass
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
 
-      - name: Setup server (auto — runs every deploy, skips what's already done)
+      - name: Setup Apache Server
         run: |
           set -e
 
-          # Write Apache VirtualHost config with unique file names based on PORT
-          echo '<VirtualHost *:'"$PORT"'>' > /tmp/gh-actions-$PORT.conf
-          echo '    DocumentRoot /home/'"$USER"'/gh-actions-app-'"$PORT"'/current' >> /tmp/gh-actions-$PORT.conf
-          echo '    <Directory /home/'"$USER"'/gh-actions-app-'"$PORT"'/>' >> /tmp/gh-actions-$PORT.conf
-          echo '        Options -Indexes +FollowSymLinks' >> /tmp/gh-actions-$PORT.conf
-          echo '        AllowOverride None' >> /tmp/gh-actions-$PORT.conf
-          echo '        Require all granted' >> /tmp/gh-actions-$PORT.conf
-          echo '    </Directory>' >> /tmp/gh-actions-$PORT.conf
-          echo '    ErrorLog ${APACHE_LOG_DIR}/gh-actions-error-'"$PORT"'.log' >> /tmp/gh-actions-$PORT.conf
-          echo '    CustomLog ${APACHE_LOG_DIR}/gh-actions-access-'"$PORT"'.log combined' >> /tmp/gh-actions-$PORT.conf
-          echo '</VirtualHost>' >> /tmp/gh-actions-$PORT.conf
-          
-          # SCP unique config file to server
-          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/gh-actions-$PORT.conf "$USER@$HOST:/tmp/gh-actions-$PORT.conf"
+          echo '<VirtualHost *:'"$PORT"'>' > /tmp/site.conf
+          echo '    DocumentRoot /home/'"$USER"'/website' >> /tmp/site.conf
+          echo '    <Directory /home/'"$USER"'/website>' >> /tmp/site.conf
+          echo '        Options Indexes FollowSymLinks' >> /tmp/site.conf
+          echo '        AllowOverride None' >> /tmp/site.conf
+          echo '        Require all granted' >> /tmp/site.conf
+          echo '    </Directory>' >> /tmp/site.conf
+          echo '</VirtualHost>' >> /tmp/site.conf
 
-          # SSH: install Apache, create unique dirs, configure, reload
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER@$HOST" "
+          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/site.conf "$USER@$HOST:/tmp/site.conf"
+
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$HOST" "
             set -e
 
-            # 0. Configure passwordless sudo for deploy user (once)
-            echo \"$PASS\" | sudo -S sh -c \"echo '$USER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$USER\"
-            echo \"$PASS\" | sudo -S chmod 0440 /etc/sudoers.d/$USER
-
-            # 1. Install Apache if not already installed
-            if ! dpkg -s apache2 2>/dev/null | grep -q 'Status: install ok installed'; then
-              echo 'Installing Apache...'
-              sudo apt-get update -qq
-              sudo apt-get install -y -qq apache2
+            if ! dpkg -s apache2 >/dev/null 2>&1; then
+              echo '$PASS' | sudo -S apt-get update -qq
+              echo '$PASS' | sudo -S apt-get install -y -qq apache2
             fi
 
-            # 2. Create unique app directories using PORT (idempotent)
-            mkdir -p ~/gh-actions-app-$PORT/{v1,v2}
+            mkdir -p ~/website
 
-            # 3. Add Listen directive for your specific port
-            if ! grep -q \"^Listen $PORT\$\" /etc/apache2/ports.conf 2>/dev/null; then
-              sudo sh -c \"echo 'Listen $PORT' >> /etc/apache2/ports.conf\"
+            if ! grep -q 'Listen $PORT' /etc/apache2/ports.conf; then
+              echo '$PASS' | sudo -S sh -c 'echo Listen $PORT >> /etc/apache2/ports.conf'
             fi
 
-            # 4. Move VirtualHost config into place
-            sudo mv /tmp/gh-actions-$PORT.conf /etc/apache2/sites-available/gh-actions-$PORT.conf
+            echo '$PASS' | sudo -S mv /tmp/site.conf /etc/apache2/sites-available/site.conf
 
-            # 5. Enable site if not already enabled
-            if ! [ -L /etc/apache2/sites-enabled/gh-actions-$PORT.conf ]; then
-              sudo a2ensite gh-actions-$PORT.conf
+            if ! [ -L /etc/apache2/sites-enabled/site.conf ]; then
+              echo '$PASS' | sudo -S a2ensite site.conf
             fi
 
-            # 6. Fix directory permissions for Apache
-            sudo chmod 755 /home/\$USER/
-            sudo chown -R \$USER:www-data ~/gh-actions-app-$PORT/
-
-            # 7. Test config and reload Apache gracefully
-            sudo apache2ctl configtest
-            sudo apache2ctl graceful
-          "
-          echo "Server setup complete"
-
-      - name: Blue-Green Deploy
-        run: |
-          set -e
-
-          echo "=== Testing SSH connection ==="
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER@$HOST" "echo 'SSH connection OK'"
-
-          echo "=== Determining inactive version (blue-green) ==="
-          INACTIVE=$(sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER@$HOST" "
-            # Target your unique directory
-            APP_DIR=/home/$USER/gh-actions-app-$PORT
-            if [ -L \$APP_DIR/current ] && [ \"\$(readlink \$APP_DIR/current)\" = \"\$APP_DIR/v2\" ]; then
-              echo v1
-            else
-              echo v2
-            fi
-          ")
-          echo "Target version: $INACTIVE"
-
-          echo "=== Preparing index.html with metadata ==="
-          SHORT_SHA="${SHA:0:7}"
-          DEPLOY_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          sed "s/__COMMIT_HASH__/$SHORT_SHA/g; s/__DEPLOY_TIME__/$DEPLOY_TIME/g" index.html > /tmp/index_deploy.html
-          echo "Commit: $SHORT_SHA | Time: $DEPLOY_TIME"
-
-          echo "=== Uploading to inactive version ==="
-          # Upload to your unique directory
-          sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/index_deploy.html "$USER@$HOST:/home/$USER/gh-actions-app-$PORT/$INACTIVE/index.html"
-
-          echo "=== Atomic symlink swap + graceful Apache reload ==="
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER@$HOST" "
-            # Target your unique directory
-            APP_DIR=/home/$USER/gh-actions-app-$PORT
-            ln -sfn \$APP_DIR/$INACTIVE \$APP_DIR/current
-            sudo apache2ctl graceful
-            echo \"\$(date -u '+%Y-%m-%dT%H:%M:%SZ') - deployed $INACTIVE\" >> \$APP_DIR/deploy.log
+            echo '$PASS' | sudo -S apache2ctl graceful
           "
 
-          echo "=== Deployment complete ==="
-
-      - name: Verify deployment
+      - name: Upload index.html
         run: |
-          echo "=== Verifying deployment on port $PORT ==="
+          sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no ./* "$USER@$HOST:/home/$USER/website/"
+
+      - name: Verify Deployment
+        run: |
           sleep 2
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$HOST:$PORT/")
-          CONTENT=$(curl -s "http://$HOST:$PORT/")
-          echo "HTTP Status: $RESPONSE"
-          echo "Content preview: $(echo "$CONTENT" | grep -o '<title>.*</title>')"
-          if [ "$RESPONSE" != "200" ]; then
-            echo "Deployment verification failed"
-            exit 1
-          fi
-          echo "Deployment verified — site is live on http://$HOST:$PORT"
+          curl "http://$HOST:$PORT/"
