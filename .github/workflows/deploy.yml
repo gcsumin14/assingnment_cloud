@@ -30,21 +30,21 @@ jobs:
 
             # Install Apache if missing
             if ! dpkg -s apache2 >/dev/null 2>&1; then
-              echo '$PASS' | sudo -S apt-get update -qq
-              echo '$PASS' | sudo -S apt-get install -y -qq apache2
+              echo "$PASS" | sudo -S apt-get update -qq
+              echo "$PASS" | sudo -S apt-get install -y -qq apache2
             fi
 
             # Create website directory
             mkdir -p ~/website
 
             # Remove old broken configs (VERY IMPORTANT FIX)
-            echo '$PASS' | sudo -S a2dissite gh-actions.conf || true
-            echo '$PASS' | sudo -S rm -f /etc/apache2/sites-available/gh-actions.conf || true
-            echo '$PASS' | sudo -S rm -f /etc/apache2/sites-enabled/gh-actions.conf || true
+            echo "$PASS" | sudo -S a2dissite gh-actions.conf || true
+            echo "$PASS" | sudo -S rm -f /etc/apache2/sites-available/gh-actions.conf || true
+            echo "$PASS" | sudo -S rm -f /etc/apache2/sites-enabled/gh-actions.conf || true
 
             # Add port if not exists
-            if ! grep -q 'Listen $PORT' /etc/apache2/ports.conf; then
-              echo '$PASS' | sudo -S sh -c 'echo \"Listen $PORT\" >> /etc/apache2/ports.conf'
+            if ! grep -q "Listen $PORT" /etc/apache2/ports.conf; then
+              echo "$PASS" | sudo -S sh -c "echo \"Listen $PORT\" >> /etc/apache2/ports.conf"
             fi
           "
 
@@ -68,14 +68,14 @@ EOF
           sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$HOST" "
             set -e
 
-            echo '$PASS' | sudo -S mv /tmp/site.conf /etc/apache2/sites-available/gh-actions.conf
-            echo '$PASS' | sudo -S a2ensite gh-actions.conf
+            echo \"$PASS\" | sudo -S mv /tmp/site.conf /etc/apache2/sites-available/gh-actions.conf
+            echo \"$PASS\" | sudo -S a2ensite gh-actions.conf
 
             # Validate Apache config BEFORE restart
-            echo '$PASS' | sudo -S apache2ctl configtest
+            echo \"$PASS\" | sudo -S apache2ctl configtest
 
             # Reload safely
-            echo '$PASS' | sudo -S systemctl reload apache2
+            echo \"$PASS\" | sudo -S systemctl reload apache2
           "
 
       - name: Upload website files
